@@ -702,20 +702,27 @@ jobs:
           echo "Checking for existing Lambda permission"
           STATEMENT_ID="${{ env.RESOURCE_PREFIX }}api-gateway-permission"
 
-          # MORE ROBUST PERMISSION CHECK USING JQ TO PARSE JSON CORRECTLY
-          PERMISSION_EXISTS=false
-          POLICY_JSON=$(aws lambda get-policy --function-name ${{ env.FUNCTION_NAME }} 2>/dev/null || echo '{"Policy":"{}"}')
+          # ATTEMPT TO GET POLICY AND CHECK DIRECTLY WITH AWS CLI FIRST
+          POLICY_EXISTS=$(aws lambda get-policy --function-name ${{ env.FUNCTION_NAME }} 2>/dev/null || echo "")
 
-          if [ -n "$POLICY_JSON" ] && [ "$POLICY_JSON" != '{"Policy":"{}"}' ]; then
-            echo "Lambda policy exists, checking for permission statement"
-            if echo "$POLICY_JSON" | jq -e '.Policy | fromjson | .Statement[] | select(.Sid == "'"$STATEMENT_ID"'")' > /dev/null 2>&1; then
-              PERMISSION_EXISTS=true
-              echo "Lambda permission with ID $STATEMENT_ID already exists"
+          if [ -n "$POLICY_EXISTS" ]; then
+            echo "Lambda policy exists, examining statement ID..."
+            echo "$POLICY_EXISTS" | grep -q "$STATEMENT_ID"
+            
+            # If grep finds the statement ID in the policy, exit code will be 0
+            if [ $? -eq 0 ]; then
+              echo "Permission with statement ID $STATEMENT_ID already exists, skipping"
+            else
+              echo "Adding Lambda permission for API Gateway"
+              aws lambda add-permission \
+                --function-name ${{ env.FUNCTION_NAME }} \
+                --statement-id "$STATEMENT_ID" \
+                --action lambda:InvokeFunction \
+                --principal apigateway.amazonaws.com \
+                --source-arn "arn:aws:execute-api:${{ env.AWS_REGION }}:${{ env.ACCOUNT_ID }}:$API_ID/*/*"
             fi
-          fi
-
-          if [ "$PERMISSION_EXISTS" = "false" ]; then
-            echo "Adding Lambda permission for API Gateway"
+          else
+            echo "No Lambda policy exists, adding permission"
             aws lambda add-permission \
               --function-name ${{ env.FUNCTION_NAME }} \
               --statement-id "$STATEMENT_ID" \
