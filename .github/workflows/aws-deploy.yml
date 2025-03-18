@@ -45,7 +45,13 @@ env:
   DEFAULT_API_GATEWAY_TYPE: "REST" # OPTIONS: REST OR HTTP
 
   # PROJECT ENVIRONMENT VARIABLES
-  DEFAULT_PROJECT_ENV: "{{ env.CUSTOM_ENV_VAR }};{{ env.CUSTOM_ENV_VAR_2 }}"
+  DEFAULT_PROJECT_ENV: >-
+    CUSTOM_ENV_VAR=${{ secrets.CUSTOM_ENV_VAR }};
+    CUSTOM_ENV_VAR_2=${{ secrets.CUSTOM_ENV_VAR_2 }}
+
+  # APPLICATION SETTINGS
+  DEFAULT_ASPNETCORE_ENVIRONMENT: "Production"
+  DEFAULT_LAMBDA_DEBUG: "true"
 
   # AWS DEPLOYMENT CONFIGURATION - ADJUST THESE FOR PERFORMANCE/COST BALANCE
   DEFAULT_REGION: "us-east-1"
@@ -291,7 +297,8 @@ jobs:
           echo "LAMBDA_HANDLER=$DEFAULT_LAMBDA_HANDLER" >> $GITHUB_ENV
 
           # ENVIRONMENT VARIABLES JSON
-          echo "ENVIRONMENT_VARS={\"ASPNETCORE_ENVIRONMENT\":\"Production\"}" >> $GITHUB_ENV
+          echo "ASPNETCORE_ENVIRONMENT=$DEFAULT_ASPNETCORE_ENVIRONMENT" >> $GITHUB_ENV
+          echo "LAMBDA_DEBUG=$DEFAULT_LAMBDA_DEBUG" >> $GITHUB_ENV
 
           # BOOLEAN FLAGS
           echo "RUN_TESTS=${{ github.event.inputs.run_tests }}" >> $GITHUB_ENV
@@ -450,8 +457,9 @@ jobs:
           echo "TESTS_PATH=$DEFAULT_TESTS_PATH" >> $GITHUB_ENV
           echo "LAMBDA_HANDLER=$DEFAULT_LAMBDA_HANDLER" >> $GITHUB_ENV
 
-          # ENVIRONMENT variables JSON
-          echo "ENVIRONMENT_VARS={\"ASPNETCORE_ENVIRONMENT\":\"Production\"}" >> $GITHUB_ENV
+          # APPLICATION ENVIRONMENT VARIABLES
+          echo "ASPNETCORE_ENVIRONMENT=$DEFAULT_ASPNETCORE_ENVIRONMENT" >> $GITHUB_ENV
+          echo "LAMBDA_DEBUG=$DEFAULT_LAMBDA_DEBUG" >> $GITHUB_ENV
 
           # BOOLEAN flags
           echo "RUN_TESTS=${{ github.event.inputs.run_tests }}" >> $GITHUB_ENV
@@ -538,12 +546,101 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --function-role "${{ env.LAMBDA_ROLE_ARN }}" \
             --function-handler ${{ env.LAMBDA_HANDLER }} \
-            --package lambda-package.zip \
+            --package ${{ env.LAMBDA_PACKAGE_PATH }} \
             --function-memory-size ${{ env.LAMBDA_MEMORY }} \
             --function-timeout ${{ env.LAMBDA_TIMEOUT }} \
             --function-runtime dotnet8 \
-            --function-environment-variables "ASPNETCORE_ENVIRONMENT=Production;${{ env.DEFAULT_PROJECT_ENV }};LAMBDA_DEBUG=true" \
-            --disable-interactive true
+            --function-url ${{ env.FUNCTION_URL }} \
+            --function-role ${{ env.LAMBDA_ROLE_ARN }} \
+            --function-environment-variables "ASPNETCORE_ENVIRONMENT=${{ env.ASPNETCORE_ENVIRONMENT }};LAMBDA_DEBUG=${{ env.LAMBDA_DEBUG }};${{ env.DEFAULT_PROJECT_ENV }}" \
+            ${{ env.PROJECT_PATH }}
+
+      - name: Ensure environment variables are set with AWS CLI
+        run: |
+          echo "WAITING FOR LAMBDA FUNCTION TO BECOME ACTIVE..."
+          # WAIT FOR FUNCTION TO BECOME ACTIVE
+          MAX_WAIT=60
+          WAIT_TIME=0
+          DELAY=5
+
+          while [ $WAIT_TIME -lt $MAX_WAIT ]; do
+            FUNCTION_STATE=$(aws lambda get-function --function-name ${{ env.FUNCTION_NAME }} --query 'Configuration.State' --output text 2>/dev/null || echo "")
+            echo "Current function state: $FUNCTION_STATE"
+            
+            if [ "$FUNCTION_STATE" = "Active" ]; then
+              echo "LAMBDA FUNCTION IS ACTIVE, PROCEEDING WITH ENVIRONMENT VARIABLE UPDATE..."
+              break
+            fi
+            
+            echo "WAITING FOR FUNCTION TO BECOME ACTIVE, WAITED ${WAIT_TIME}s SO FAR..."
+            sleep $DELAY
+            WAIT_TIME=$((WAIT_TIME + DELAY))
+          done
+
+          if [ $WAIT_TIME -ge $MAX_WAIT ]; then
+            echo "WARNING: TIMED OUT WAITING FOR FUNCTION TO BECOME ACTIVE, ATTEMPTING UPDATE ANYWAY..."
+          fi
+
+          echo "SETTING ENVIRONMENT VARIABLES DIRECTLY WITH AWS CLI..."
+          # Parse DEFAULT_PROJECT_ENV into variables
+          # Create base ENV_VARS with non-DEFAULT_PROJECT_ENV variables
+          ENV_VARS_JSON='{
+            "Variables": {
+              "ASPNETCORE_ENVIRONMENT": "'$ASPNETCORE_ENVIRONMENT'",
+              "LAMBDA_DEBUG": "'$LAMBDA_DEBUG'"
+            }
+          }'
+
+          # PARSE SMTP VARIABLES FROM DEFAULT_PROJECT_ENV
+          IFS=';' read -ra ENV_VARS_ARRAY <<< "${{ env.DEFAULT_PROJECT_ENV }}"
+          for VAR in "${ENV_VARS_ARRAY[@]}"; do
+            if [ -n "$VAR" ]; then
+              VAR=$(echo "$VAR" | xargs) # Trim whitespace
+              if [ -n "$VAR" ]; then
+                KEY=$(echo "$VAR" | cut -d'=' -f1)
+                VALUE=$(echo "$VAR" | cut -d'=' -f2-)
+                
+                # ADD TO THE JSON USING JQ
+                ENV_VARS_JSON=$(echo "$ENV_VARS_JSON" | jq --arg key "$KEY" --arg value "$VALUE" '.Variables[$key] = $value')
+              fi
+            fi
+          done
+
+          # CONVERT TO PROPER FORMAT FOR AWS CLI
+          ENV_VARS=$(echo "$ENV_VARS_JSON")
+
+          # UPDATE THE FUNCTION CONFIGURATION WITH THE ENVIRONMENT VARIABLES
+          MAX_RETRIES=5
+          RETRY=0
+          RETRY_DELAY=10
+
+          while [ $RETRY -lt $MAX_RETRIES ]; do
+            if aws lambda update-function-configuration \
+              --function-name ${{ env.FUNCTION_NAME }} \
+              --environment "$ENV_VARS" \
+              --region ${{ env.AWS_REGION }}; then
+              echo "SUCCESSFULLY UPDATED ENVIRONMENT VARIABLES"
+              break
+            else
+              RETRY=$((RETRY + 1))
+              if [ $RETRY -ge $MAX_RETRIES ]; then
+                echo "FAILED TO UPDATE ENVIRONMENT VARIABLES AFTER MAXIMUM RETRIES"
+                echo "PLEASE CHECK LAMBDA FUNCTION CONFIGURATION MANUALLY"
+                exit 1
+              fi
+              echo "UPDATE FAILED, RETRYING IN ${RETRY_DELAY}s (ATTEMPT $RETRY OF $MAX_RETRIES)..."
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          echo "VERIFYING ENVIRONMENT VARIABLES..."
+          aws lambda get-function-configuration \
+            --function-name ${{ env.FUNCTION_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query "Environment.Variables.ASPNETCORE_ENVIRONMENT" \
+            --output text
+            
+          echo "ENVIRONMENT VARIABLES CONFIGURATION COMPLETED."
 
       - name: Set API Gateway variables
         run: |
