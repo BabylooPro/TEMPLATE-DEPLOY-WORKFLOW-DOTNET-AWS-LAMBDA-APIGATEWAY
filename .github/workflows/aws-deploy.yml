@@ -44,6 +44,9 @@ env:
   DEFAULT_LAMBDA_HANDLER: "WeatherForecast::WeatherForecast.LambdaEntryPoint::FunctionHandlerAsync"
   DEFAULT_API_GATEWAY_TYPE: "REST" # OPTIONS: REST OR HTTP
 
+  # PROJECT ENVIRONMENT VARIABLES
+  DEFAULT_PROJECT_ENV: "CUSTOM_ENV_VAR=true;CUSTOM_ENV_VAR_2=false"
+
   # AWS DEPLOYMENT CONFIGURATION - ADJUST THESE FOR PERFORMANCE/COST BALANCE
   DEFAULT_REGION: "us-east-1"
   DEFAULT_DOTNET_VERSION: "8.0.x"
@@ -539,7 +542,7 @@ jobs:
             --function-memory-size ${{ env.LAMBDA_MEMORY }} \
             --function-timeout ${{ env.LAMBDA_TIMEOUT }} \
             --function-runtime dotnet8 \
-            --function-environment-variables "ASPNETCORE_ENVIRONMENT=Production;LAMBDA_DEBUG=true" \
+            --function-environment-variables "ASPNETCORE_ENVIRONMENT=Production;${{ env.DEFAULT_PROJECT_ENV }};LAMBDA_DEBUG=true" \
             --disable-interactive true
 
       - name: Set API Gateway variables
