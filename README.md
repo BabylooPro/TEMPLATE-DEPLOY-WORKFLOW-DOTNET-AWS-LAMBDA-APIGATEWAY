@@ -1,6 +1,6 @@
 # Deploy .NET 8 Minimal API to AWS Lambda/API Gateway – One Click (Almost) & Done!
 
-This template automates the deployment of .NET 8 Minimal API projects to AWS Lambda with API Gateway integration with a single workflow file [.github/workflow/aws-deploy.yml](.github/workflow/aws-deploy.yml). It creates all necessary AWS resources including IAM roles, Lambda functions, and API Gateway configurations with proper security practices (not quite FBI level yet). The only manual step left is some clicky/moussing to integrate the IAM User in AWS Console (See [Step-by-Step AWS Setup Guide](#step-by-step-aws-setup-guide)), because this template is 98.89% automated! 🥳
+This template automates the deployment of .NET 8 Minimal API projects to AWS Lambda with API Gateway integration with a single workflow file [.github/workflows/aws-deploy.yml](.github/workflows/aws-deploy.yml). It creates all necessary AWS resources including IAM roles, Lambda functions, and API Gateway configurations with proper security practices (not quite FBI level yet). The only manual step left is some clicky/moussing to integrate the IAM User in AWS Console (See [Step-by-Step AWS Setup Guide](#step-by-step-aws-setup-guide)), because this template is 98.89% automated! 🥳
 
 > **INFO: Coming soon to the GitHub Actions Marketplace!**
 
@@ -107,7 +107,7 @@ curl -X GET "https://[API-ID].execute-api.[REGION].amazonaws.com/prod/weatherfor
 
 ### Basic Usage
 
-1. Add this workflow file to the repository in [.github/workflow/aws-deploy.yml](.github/workflow/aws-deploy.yml)
+1. Add this workflow file to the repository in [.github/workflows/aws-deploy.yml](.github/workflows/aws-deploy.yml)
 2. Trigger the workflow manually from the GitHub Actions tab: `https://github.com/[OWNER]/[REPO]/actions/workflows/aws-deploy.yml`
 
 The workflow will run with default values and deploy the .NET application to AWS Lambda.
