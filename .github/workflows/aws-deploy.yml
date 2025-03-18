@@ -714,7 +714,7 @@ jobs:
           # Check if the error indicates the permission already exists
           if echo "$ADD_PERMISSION_RESULT" | grep -q "ResourceConflictException"; then
             echo "Lambda permission already exists with statement ID $STATEMENT_ID"
-          elif echo "$ADD_PERMISSION_RESULT" | grep -q "FunctionArn"; then
+          elif echo "$ADD_PERMISSION_RESULT" | grep -q "Statement"; then
             echo "Lambda permission successfully added with statement ID $STATEMENT_ID"
           else
             echo "Unexpected error when adding Lambda permission: $ADD_PERMISSION_RESULT"
