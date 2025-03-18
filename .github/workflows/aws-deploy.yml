@@ -589,59 +589,133 @@ jobs:
       - name: Configure API Gateway
         run: |
           # GET ROOT RESOURCE ID
+          echo "Getting API Gateway root resource ID"
           ROOT_RESOURCE_ID=$(aws apigateway get-resources \
             --rest-api-id $API_ID \
             --query 'items[?path==`/`].id' \
             --output text)
+          echo "Root resource ID: $ROOT_RESOURCE_ID"
 
-          # CREATE PROXY RESOURCE
-          PROXY_RESOURCE_RESULT=$(aws apigateway create-resource \
-            --rest-api-id $API_ID \
-            --parent-id $ROOT_RESOURCE_ID \
-            --path-part "{proxy+}" 2>/dev/null || echo "Resource likely exists")
-
+          # CHECK IF PROXY RESOURCE EXISTS
+          echo "Checking if proxy resource exists"
           PROXY_RESOURCE_ID=$(aws apigateway get-resources \
             --rest-api-id $API_ID \
             --query 'items[?path==`/{proxy+}`].id' \
             --output text)
 
-          # SET UP ANY METHOD
-          aws apigateway put-method \
+          # CREATE PROXY RESOURCE IF IT DOESN'T EXIST
+          if [ -z "$PROXY_RESOURCE_ID" ] || [ "$PROXY_RESOURCE_ID" = "None" ]; then
+            echo "Creating proxy resource"
+            PROXY_RESOURCE_RESULT=$(aws apigateway create-resource \
+              --rest-api-id $API_ID \
+              --parent-id $ROOT_RESOURCE_ID \
+              --path-part "{proxy+}")
+            PROXY_RESOURCE_ID=$(echo $PROXY_RESOURCE_RESULT | jq -r '.id')
+            echo "Created proxy resource with ID: $PROXY_RESOURCE_ID"
+          else
+            echo "Proxy resource already exists with ID: $PROXY_RESOURCE_ID"
+          fi
+
+          # CHECK IF ANY METHOD EXISTS FOR PROXY RESOURCE
+          echo "Checking if ANY method exists for proxy resource"
+          PROXY_ANY_METHOD=$(aws apigateway get-method \
             --rest-api-id $API_ID \
             --resource-id $PROXY_RESOURCE_ID \
-            --http-method ANY \
-            --authorization-type NONE 2>/dev/null || echo "Method likely exists"
+            --http-method ANY 2>/dev/null || echo "")
 
-          # CREATE LAMBDA INTEGRATION
-          aws apigateway put-integration \
+          # CREATE ANY METHOD FOR PROXY RESOURCE IF IT DOESN'T EXIST
+          if [ -z "$PROXY_ANY_METHOD" ]; then
+            echo "Creating ANY method for proxy resource"
+            aws apigateway put-method \
+              --rest-api-id $API_ID \
+              --resource-id $PROXY_RESOURCE_ID \
+              --http-method ANY \
+              --authorization-type NONE
+          else
+            echo "ANY method for proxy resource already exists"
+          fi
+
+          # CHECK IF INTEGRATION EXISTS FOR PROXY RESOURCE
+          echo "Checking if integration exists for proxy resource"
+          PROXY_INTEGRATION=$(aws apigateway get-integration \
             --rest-api-id $API_ID \
             --resource-id $PROXY_RESOURCE_ID \
-            --http-method ANY \
-            --type AWS_PROXY \
-            --integration-http-method POST \
-            --uri arn:aws:apigateway:${{ env.AWS_REGION }}:lambda:path/2015-03-31/functions/arn:aws:lambda:${{ env.AWS_REGION }}:${{ env.ACCOUNT_ID }}:function:${{ env.FUNCTION_NAME }}/invocations 2>/dev/null || echo "Integration likely exists"
+            --http-method ANY 2>/dev/null || echo "")
 
-          # CREATE ROOT METHOD
-          aws apigateway put-method \
+          # CREATE INTEGRATION FOR PROXY RESOURCE IF IT DOESN'T EXIST
+          if [ -z "$PROXY_INTEGRATION" ]; then
+            echo "Creating integration for proxy resource"
+            aws apigateway put-integration \
+              --rest-api-id $API_ID \
+              --resource-id $PROXY_RESOURCE_ID \
+              --http-method ANY \
+              --type AWS_PROXY \
+              --integration-http-method POST \
+              --uri arn:aws:apigateway:${{ env.AWS_REGION }}:lambda:path/2015-03-31/functions/arn:aws:lambda:${{ env.AWS_REGION }}:${{ env.ACCOUNT_ID }}:function:${{ env.FUNCTION_NAME }}/invocations
+          else
+            echo "Integration for proxy resource already exists"
+          fi
+
+          # CHECK IF ANY METHOD EXISTS FOR ROOT RESOURCE
+          echo "Checking if ANY method exists for root resource"
+          ROOT_ANY_METHOD=$(aws apigateway get-method \
             --rest-api-id $API_ID \
             --resource-id $ROOT_RESOURCE_ID \
-            --http-method ANY \
-            --authorization-type NONE 2>/dev/null || echo "Method likely exists"
+            --http-method ANY 2>/dev/null || echo "")
 
-          # CREATE ROOT LAMBDA INTEGRATION
-          aws apigateway put-integration \
+          # CREATE ANY METHOD FOR ROOT RESOURCE IF IT DOESN'T EXIST
+          if [ -z "$ROOT_ANY_METHOD" ]; then
+            echo "Creating ANY method for root resource"
+            aws apigateway put-method \
+              --rest-api-id $API_ID \
+              --resource-id $ROOT_RESOURCE_ID \
+              --http-method ANY \
+              --authorization-type NONE
+          else
+            echo "ANY method for root resource already exists"
+          fi
+
+          # CHECK IF INTEGRATION EXISTS FOR ROOT RESOURCE
+          echo "Checking if integration exists for root resource"
+          ROOT_INTEGRATION=$(aws apigateway get-integration \
             --rest-api-id $API_ID \
             --resource-id $ROOT_RESOURCE_ID \
-            --http-method ANY \
-            --type AWS_PROXY \
-            --integration-http-method POST \
-            --uri arn:aws:apigateway:${{ env.AWS_REGION }}:lambda:path/2015-03-31/functions/arn:aws:lambda:${{ env.AWS_REGION }}:${{ env.ACCOUNT_ID }}:function:${{ env.FUNCTION_NAME }}/invocations 2>/dev/null || echo "Integration likely exists"
+            --http-method ANY 2>/dev/null || echo "")
 
+          # CREATE INTEGRATION FOR ROOT RESOURCE IF IT DOESN'T EXIST
+          if [ -z "$ROOT_INTEGRATION" ]; then
+            echo "Creating integration for root resource"
+            aws apigateway put-integration \
+              --rest-api-id $API_ID \
+              --resource-id $ROOT_RESOURCE_ID \
+              --http-method ANY \
+              --type AWS_PROXY \
+              --integration-http-method POST \
+              --uri arn:aws:apigateway:${{ env.AWS_REGION }}:lambda:path/2015-03-31/functions/arn:aws:lambda:${{ env.AWS_REGION }}:${{ env.ACCOUNT_ID }}:function:${{ env.FUNCTION_NAME }}/invocations
+          else
+            echo "Integration for root resource already exists"
+          fi
+
+      - name: Configure Lambda Permissions
+        run: |
           # ADD LAMBDA PERMISSION FOR API GATEWAY
+          echo "Checking for existing Lambda permission"
           STATEMENT_ID="${{ env.RESOURCE_PREFIX }}api-gateway-permission"
-          EXISTING_PERMISSIONS=$(aws lambda get-policy --function-name ${{ env.FUNCTION_NAME }} 2>/dev/null || echo "{}")
 
-          if ! echo "$EXISTING_PERMISSIONS" | grep -q "$STATEMENT_ID"; then
+          # MORE ROBUST PERMISSION CHECK USING JQ TO PARSE JSON CORRECTLY
+          PERMISSION_EXISTS=false
+          POLICY_JSON=$(aws lambda get-policy --function-name ${{ env.FUNCTION_NAME }} 2>/dev/null || echo '{"Policy":"{}"}')
+
+          if [ -n "$POLICY_JSON" ] && [ "$POLICY_JSON" != '{"Policy":"{}"}' ]; then
+            echo "Lambda policy exists, checking for permission statement"
+            if echo "$POLICY_JSON" | jq -e '.Policy | fromjson | .Statement[] | select(.Sid == "'"$STATEMENT_ID"'")' > /dev/null 2>&1; then
+              PERMISSION_EXISTS=true
+              echo "Lambda permission with ID $STATEMENT_ID already exists"
+            fi
+          fi
+
+          if [ "$PERMISSION_EXISTS" = "false" ]; then
+            echo "Adding Lambda permission for API Gateway"
             aws lambda add-permission \
               --function-name ${{ env.FUNCTION_NAME }} \
               --statement-id "$STATEMENT_ID" \
