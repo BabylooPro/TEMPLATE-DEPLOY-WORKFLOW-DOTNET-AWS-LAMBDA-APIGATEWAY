@@ -26,6 +26,13 @@ public class Program
                 webBuilder.UseStartup<Startup>();
             });
 
+    // PUBLIC METHOD TO LOG ENVIRONMENT VARIABLES - CALLED BY MIDDLEWARE
+    public static void LogEnvironmentVariables()
+    {
+        CheckAndLogEnvVar("CUSTOM_ENV_VAR");
+        CheckAndLogEnvVar("CUSTOM_ENV_VAR_2");
+    }
+
     // HELPER METHOD TO CHECK AND LOG ENVIRONMENT VARIABLES
     private static void CheckAndLogEnvVar(string envVarName)
     {

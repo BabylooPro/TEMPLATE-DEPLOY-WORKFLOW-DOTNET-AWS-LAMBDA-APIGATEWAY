@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using WeatherForecast.Middleware;
 
 namespace WeatherForecast;
 
@@ -56,6 +57,9 @@ public class Program
             app.UseSwaggerUI();
         }
 
+        // ENV LOGGING MIDDLEWARE - WILL LOG ENVIRONMENT VARIABLES FOR EACH REQUEST
+        app.UseEnvLogging();
+
         // GLOBAL MIDDLEWARE CONFIGURATION
         app.UseHttpsRedirection();
         app.UseRouting();
@@ -66,6 +70,13 @@ public class Program
         {
             endpoints.MapControllers();
         });
+    }
+
+    // PUBLIC METHOD TO LOG ENVIRONMENT VARIABLES - CALLED BY MIDDLEWARE
+    public static void LogEnvironmentVariables()
+    {
+        CheckAndLogEnvVar("CUSTOM_ENV_VAR");
+        CheckAndLogEnvVar("CUSTOM_ENV_VAR_2");
     }
 
     // HELPER METHOD TO CHECK AND LOG ENVIRONMENT VARIABLES

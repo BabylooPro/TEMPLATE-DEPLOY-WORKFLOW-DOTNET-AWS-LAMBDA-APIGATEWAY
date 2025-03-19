@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Todo.Middleware;
 
 namespace Todo;
 
@@ -43,6 +44,9 @@ public class Startup
             app.UseSwagger();
             app.UseSwaggerUI();
         }
+
+        // ENV LOGGING MIDDLEWARE - WILL LOG ENVIRONMENT VARIABLES FOR EACH REQUEST
+        app.UseEnvLogging();
 
         // GLOBAL MIDDLEWARE CONFIGURATION
         app.UseHttpsRedirection();
