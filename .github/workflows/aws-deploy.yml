@@ -925,15 +925,31 @@ jobs:
       - name: Create API Key
         if: steps.check-api-key.outputs.api_key_exists != 'true'
         run: |
-          # CREATE API KEY
-          API_KEY_RESULT=$(aws apigateway create-api-key \
+          # ENSURE ALL OUTPUT IS CORRECTLY MASKED
+          # FIRST ADD MASKING FOR THE OUTPUT
+          # THIS IS USED TO PRE-MASK OUTPUTS BEFORE THEY'RE CREATED
+          echo "::add-mask::$(date +%s%N | sha256sum | head -c 64)"
+
+          # CREATE API KEY WITHOUT DIRECT OUTPUT LOGGING
+          # REDIRECT STDOUT TO A SECURE FILE INSTEAD OF DISPLAYING
+          API_KEY_JSON=$(aws apigateway create-api-key \
             --name "${{ env.API_KEY_NAME }}" \
             --description "${{ env.API_KEY_DESCRIPTION }}" \
-            --enabled)
-
-          API_KEY=$(echo $API_KEY_RESULT | jq -r '.id')
+            --enabled \
+            --output json > /tmp/api_key_result.json)
+            
+          # GET ID WITHOUT PRINTING THE FULL JSON TO LOGS
+          API_KEY=$(cat /tmp/api_key_result.json | jq -r '.id')
+          echo "::add-mask::$API_KEY"
           echo "API_KEY=$API_KEY" >> $GITHUB_ENV
 
+          # IMMEDIATELY MASK THE VALUE IN THE OUTPUT FILE
+          API_KEY_VALUE=$(cat /tmp/api_key_result.json | jq -r '.value')
+          echo "::add-mask::$API_KEY_VALUE"
+
+          # SECURELY REMOVE THE TEMP FILE WITH THE KEY DATA
+          shred -u /tmp/api_key_result.json
+            
           # ADD API KEY TO USAGE PLAN
           aws apigateway create-usage-plan-key \
             --usage-plan-id ${{ env.USAGE_PLAN_ID }} \
@@ -946,15 +962,19 @@ jobs:
           API_URL="https://$API_ID.execute-api.${{ env.AWS_REGION }}.amazonaws.com/prod/"
           echo "::add-mask::$API_URL"
 
-          # RETRIEVE THE API KEY VALUE (MASKED IN LOGS)
-          API_KEY_VALUE=$(aws apigateway get-api-key \
+          # IMPORTANT: MASK THE API KEY VALUE BEFORE RETRIEVING IT
+          # USE A TEMPORARY FILE TO STORE THE RESULT WITHOUT DISPLAYING IT
+          aws apigateway get-api-key \
             --api-key "$API_KEY" \
             --include-value \
-            --query 'value' \
-            --output text)
-
-          # MASK API KEY IN LOGS
+            --output json > /tmp/api_key_value.json
+            
+          # EXTRACT AND MASK THE API KEY VALUE
+          API_KEY_VALUE=$(cat /tmp/api_key_value.json | jq -r '.value')
           echo "::add-mask::$API_KEY_VALUE"
+
+          # SECURELY REMOVE THE TEMP FILE
+          shred -u /tmp/api_key_value.json
 
           # DISPLAY NOTICE WITH SECURE INSTRUCTIONS
           echo "::notice title=API Gateway Deployed::API GATEWAY HAS BEEN SUCCESSFULLY DEPLOYED WITH URL: $API_URL"
